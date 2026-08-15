@@ -39,8 +39,7 @@ class CarStateExt:
 
       if finger_count is not None:
         ret.buttonEvents = [*create_button_events(self.active_touch_points, prev_active_touch_points,
-                                                {finger_count: ButtonType.lkas})]
-
+                                                  {finger_count: ButtonType.lkas})]
     cp_party = can_parsers[Bus.party]
 
     cp_ap_party = can_parsers[Bus.ap_party]
