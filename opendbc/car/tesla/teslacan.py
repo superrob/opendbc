@@ -1,42 +1,40 @@
+from opendbc.car import DT_CTRL
 from opendbc.car.common.conversions import Conversions as CV
 from opendbc.car.tesla.values import CANBUS, CarControllerParams, TeslaFlags
-
-
-def get_steer_ctrl_type(flags: int, ctrl_type: int) -> int:
-  # Returns the flipped signal value for DAS_steeringControlType on FSD 14
-  if flags & TeslaFlags.FSD_14:
-    return {1: 2, 2: 1}.get(ctrl_type, ctrl_type)
-  else:
-    return ctrl_type
 
 
 class TeslaCAN:
   def __init__(self, CP, packer):
     self.CP = CP
     self.packer = packer
+    self.jerk = 0.0
 
   def create_steering_control(self, angle, enabled, control_type):
-    # On FSD 14+, ANGLE_CONTROL behavior changed to allow user winddown while actuating.
-    # with openpilot, after overriding w/ ANGLE_CONTROL the wheel snaps back to the original angle abruptly
-    # so we now use LANE_KEEP_ASSIST to match stock FSD.
-    # see carstate.py for more details
+    # control_type comes from coop_steering: ANGLE_CONTROL (1) normally, LANE_KEEP_ASSIST (2) when cooperative steering is enabled
+    control_type = control_type if enabled else 0
+    if self.CP.flags & TeslaFlags.LEGACY_DAS_STEERING:
+      control_type <<= 1  # legacy firmware uses a 2-bit field, one bit up from the 3-bit signal
+
     values = {
       "DAS_steeringAngleRequest": -angle,
       "DAS_steeringHapticRequest": 0,
-      "DAS_steeringControlType": get_steer_ctrl_type(self.CP.flags, control_type if enabled else 0),
+      "DAS_steeringControlType": control_type,
     }
 
     return self.packer.make_can_msg("DAS_steeringControl", CANBUS.party, values)
 
-  def create_longitudinal_command(self, acc_state, accel, counter, v_ego, active):
+  def create_longitudinal_command(self, acc_state, accel, counter, v_ego, active, cruise_override):
     set_speed = min(max(v_ego + accel, 0) * CV.MS_TO_KPH, 400)
+
+    # ramping max jerk fixes jerkiness after gas override when above max speed
+    self.jerk = 0 if cruise_override else (self.jerk + CarControllerParams.JERK_RATE_UP * DT_CTRL * 4)
 
     values = {
       "DAS_setSpeed": set_speed,
       "DAS_accState": acc_state,
       "DAS_aebEvent": 0,
       "DAS_jerkMin": CarControllerParams.JERK_LIMIT_MIN,
-      "DAS_jerkMax": CarControllerParams.JERK_LIMIT_MAX,
+      "DAS_jerkMax": min(self.jerk, CarControllerParams.JERK_LIMIT_MAX), # ramping max jerk is enough for some reason
       "DAS_accelMin": accel,
       "DAS_accelMax": max(accel, 0),
       "DAS_controlCounter": counter,

@@ -472,6 +472,7 @@ struct CarParams {
   enableBsm @56 :Bool;       # blind spot monitoring
   flags @64 :UInt32;         # flags for car specific quirks
   alphaLongitudinalAvailable @71 :Bool;
+  longitudinalActiveWithGasAvailable @2 :Bool;
 
   minEnableSpeed @7 :Float32;
   minSteerSpeed @8 :Float32;
